@@ -2,55 +2,44 @@ import EventBus from "../utils/EventBus";
 import GameEvents from "../utils/GameEvents";
 import PopupShowConfig from "./PopupShowConfig";
 
-const { ccclass } = cc._decorator;
+const { ccclass, property } = cc._decorator;
 
 @ccclass
 export default class PopupView extends cc.Component {
-    private _titleLabel: cc.Label = null;
-    private _messageLabel: cc.Label = null;
-    private _buttonLabel: cc.Label = null;
-    private _overlay: cc.Node = null;
+    @property(cc.Node)
+    overlay: cc.Node = null;
+    @property(cc.Label)
+    titleLabel: cc.Label = null;
+    @property(cc.Label)
+    messageLabel: cc.Label = null;
+    @property(cc.Label)
+    buttonLabel: cc.Label = null;
+    @property(cc.Node)
+    primaryButton: cc.Node = null;
+
     private _pendingEventName: string = GameEvents.RESTART_GAME;
-    private _width: number = 0;
-    private _height: number = 0;
 
     init(): void {
         this.node.active = false;
-
-        const overlay = new cc.Node("Overlay");
-        overlay.addComponent(cc.Graphics);
-        overlay.on(cc.Node.EventType.TOUCH_START, () => {});
-        this.node.addChild(overlay);
-        this._overlay = overlay;
-
-        const panel = new cc.Node("Panel");
-        const pg = panel.addComponent(cc.Graphics);
-        pg.fillColor = new cc.Color(40, 40, 70, 245);
-        pg.roundRect(-190, -130, 380, 260, 20);
-        pg.fill();
-        pg.strokeColor = new cc.Color(120, 120, 180);
-        pg.lineWidth = 2;
-        pg.roundRect(-190, -130, 380, 260, 20);
-        pg.stroke();
-        panel.setContentSize(380, 260);
-        this.node.addChild(panel);
-
-        this._titleLabel = this.addLabel(panel, 40, 0, 65);
-        this._messageLabel = this.addLabel(panel, 28, 0, 10);
-        this.addPrimaryButton(panel);
-        this.applyScreenSize();
+        if (this.overlay) {
+            this.overlay.on(cc.Node.EventType.TOUCH_START, () => {});
+        }
+        if (this.primaryButton) {
+            this.primaryButton.on(cc.Node.EventType.TOUCH_END, () => {
+                EventBus.emit(this._pendingEventName);
+            });
+        }
     }
 
     show(config: PopupShowConfig): void {
-        this.applyScreenSize();
-        if (this._titleLabel) {
-            this._titleLabel.string = config.title;
+        if (this.titleLabel) {
+            this.titleLabel.string = config.title;
         }
-        if (this._messageLabel) {
-            this._messageLabel.string = config.message;
+        if (this.messageLabel) {
+            this.messageLabel.string = config.message;
         }
-        if (this._buttonLabel) {
-            this._buttonLabel.string = config.buttonText;
+        if (this.buttonLabel) {
+            this.buttonLabel.string = config.buttonText;
         }
         this._pendingEventName = config.eventName;
         this.node.active = true;
@@ -60,63 +49,5 @@ export default class PopupView extends cc.Component {
 
     hide(): void {
         this.node.active = false;
-    }
-
-    private applyScreenSize(): void {
-        const visibleSize = cc.view.getVisibleSize();
-        this._width = visibleSize.width;
-        this._height = visibleSize.height;
-        this.node.setContentSize(this._width, this._height);
-        this.node.setPosition(0, 0);
-        if (!this._overlay) {
-            return;
-        }
-        this._overlay.setContentSize(this._width, this._height);
-        const graphics = this._overlay.getComponent(cc.Graphics);
-        if (!graphics) {
-            return;
-        }
-        graphics.clear();
-        graphics.fillColor = new cc.Color(0, 0, 0, 160);
-        graphics.rect(-this._width / 2, -this._height / 2, this._width, this._height);
-        graphics.fill();
-    }
-
-    private addLabel(parent: cc.Node, fontSize: number, x: number, y: number): cc.Label {
-        const node = new cc.Node("Lbl");
-        const label = node.addComponent(cc.Label);
-        label.fontSize = fontSize;
-        label.lineHeight = fontSize + 6;
-        label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-        label.enableBold = true;
-        node.color = cc.Color.WHITE;
-        node.setPosition(x, y);
-        parent.addChild(node);
-        return label;
-    }
-
-    private addPrimaryButton(parent: cc.Node): void {
-        const btn = new cc.Node("PrimaryBtn");
-        btn.setContentSize(200, 50);
-        btn.setPosition(0, -70);
-        const bg = btn.addComponent(cc.Graphics);
-        bg.fillColor = new cc.Color(60, 160, 60);
-        bg.roundRect(-100, -25, 200, 50, 10);
-        bg.fill();
-
-        const labelNode = new cc.Node("BtnLabel");
-        const label = labelNode.addComponent(cc.Label);
-        label.string = "Restart";
-        label.fontSize = 24;
-        label.lineHeight = 30;
-        label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-        labelNode.color = cc.Color.WHITE;
-        btn.addChild(labelNode);
-        this._buttonLabel = label;
-
-        btn.on(cc.Node.EventType.TOUCH_END, () => {
-            EventBus.emit(this._pendingEventName);
-        });
-        parent.addChild(btn);
     }
 }

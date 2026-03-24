@@ -29,6 +29,8 @@ export default class GameController extends cc.Component {
     hudView: HudView = null;
     @property(BoosterPanelView)
     boosterPanelView: BoosterPanelView = null;
+    @property(PopupView)
+    popupView: PopupView = null;
 
     @property(cc.SpriteFrame)
     blueSprite: cc.SpriteFrame = null;
@@ -76,7 +78,8 @@ export default class GameController extends cc.Component {
                 chainDestruction,
                 new BombBoardEffect(GameConfig.BOMB_RADIUS)
             );
-            this._ctx.popupView = this.createRuntimePopup();
+            this._ctx.popupView = this.popupView;
+            this._ctx.popupView.init();
             this._ctx.boosterBar.setCanUseBoosters(() => !this._ctx.isProcessing);
             this._match = new GameMatchHandler(this._ctx);
             this.initGame();
@@ -140,11 +143,4 @@ export default class GameController extends cc.Component {
         this.initGame();
     }
 
-    private createRuntimePopup(): PopupView {
-        const popupNode = new cc.Node("Popup");
-        this.node.addChild(popupNode);
-        const popupView = popupNode.addComponent(PopupView);
-        popupView.init();
-        return popupView;
-    }
 }

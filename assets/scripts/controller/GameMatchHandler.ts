@@ -118,16 +118,16 @@ export default class GameMatchHandler {
         if (this._c.score >= targetScore) {
             if (this._c.levelService.isLastLevel()) {
                 this._c.popupView.show({
-                    title: "Victory!",
-                    message: `Score: ${this._c.score}\nAll levels complete!`,
-                    buttonText: "Play again",
+                    title: "Победа!",
+                    message: `Счёт: ${this._c.score}\nВсе уровни пройдены!`,
+                    buttonText: "Ещё раз",
                     eventName: GameEvents.RESTART_CAMPAIGN
                 });
             } else {
                 this._c.popupView.show({
                     title: "Уровень пройден",
                     message: `Счёт: ${this._c.score}`,
-                    buttonText: "OK Next Level",
+                    buttonText: "ок го некст",
                     eventName: GameEvents.NEXT_LEVEL
                 });
             }
@@ -136,8 +136,8 @@ export default class GameMatchHandler {
         if (this._c.movesLeft <= 0) {
             this._c.popupView.show({
                 title: "Game Over",
-                message: `Score: ${this._c.score}/${targetScore}`,
-                buttonText: "Retry",
+                message: `Счёт: ${this._c.score}/${targetScore}`,
+                buttonText: "Попробовать ещё",
                 eventName: GameEvents.RESTART_GAME
             });
             return;
@@ -151,25 +151,24 @@ export default class GameMatchHandler {
 
     private handleNoMoves(): void {
         if (this._c.shufflesLeft <= 0) {
-            this._c.popupView.show({
-                title: "Game Over",
-                message: "No moves available",
-                buttonText: "Retry",
-                eventName: GameEvents.RESTART_GAME
-            });
+            this.showNoMovesPopup();
             return;
         }
         this._c.shufflesLeft--;
         if (!ShuffleProcessor.shuffle(this._c.grid)) {
-            this._c.popupView.show({
-                title: "Game Over",
-                message: "No moves available",
-                buttonText: "Retry",
-                eventName: GameEvents.RESTART_GAME
-            });
+            this.showNoMovesPopup();
             return;
         }
         this.updateHud();
         this._c.boardView.animateShuffle(this._c.grid, () => { this._c.isProcessing = false; });
+    }
+
+    private showNoMovesPopup() {
+        this._c.popupView.show({
+            title: "Game Over",
+            message: "Нет доступных действий",
+            buttonText: "Попробовать ещё",
+            eventName: GameEvents.RESTART_GAME
+        });
     }
 }
