@@ -7,7 +7,7 @@ export default class Grid {
     readonly rows: number;
     readonly cols: number;
 
-    constructor(rows: number = GameConfig.ROWS, cols: number = GameConfig.COLS) {
+    constructor(rows: number = GameConfig.BOARD_ROWS, cols: number = GameConfig.BOARD_COLS) {
         this.rows = rows;
         this.cols = cols;
         this._cells = [];
@@ -49,12 +49,12 @@ export default class Grid {
         return row >= 0 && row < this.rows && col >= 0 && col < this.cols;
     }
 
-    fill(): Tile[] {
+    fill(randomFn: () => number = Math.random): Tile[] {
         const created: Tile[] = [];
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
                 if (!this._cells[r][c]) {
-                    const color = Math.floor(Math.random() * GameConfig.TILE_COLORS_COUNT) as TileColor;
+                    const color = Math.floor(randomFn() * GameConfig.TILE_COLORS_COUNT) as TileColor;
                     const tile = new Tile(color, r, c);
                     this._cells[r][c] = tile;
                     created.push(tile);

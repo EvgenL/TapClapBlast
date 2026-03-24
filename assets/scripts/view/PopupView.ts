@@ -1,5 +1,6 @@
 import EventBus from "../utils/EventBus";
 import GameEvents from "../utils/GameEvents";
+import PopupShowConfig from "./PopupShowConfig";
 
 const { ccclass } = cc._decorator;
 
@@ -7,20 +8,20 @@ const { ccclass } = cc._decorator;
 export default class PopupView extends cc.Component {
     private _titleLabel: cc.Label = null;
     private _messageLabel: cc.Label = null;
+    private _buttonLabel: cc.Label = null;
+    private _overlay: cc.Node = null;
+    private _pendingEventName: string = GameEvents.RESTART_GAME;
+    private _width: number = 0;
+    private _height: number = 0;
 
     init(): void {
-        this.node.setContentSize(720, 1280);
-        this.node.setPosition(0, 0);
         this.node.active = false;
 
         const overlay = new cc.Node("Overlay");
-        overlay.setContentSize(720, 1280);
-        const og = overlay.addComponent(cc.Graphics);
-        og.fillColor = new cc.Color(0, 0, 0, 160);
-        og.rect(-360, -640, 720, 1280);
-        og.fill();
+        overlay.addComponent(cc.Graphics);
         overlay.on(cc.Node.EventType.TOUCH_START, () => {});
         this.node.addChild(overlay);
+        this._overlay = overlay;
 
         const panel = new cc.Node("Panel");
         const pg = panel.addComponent(cc.Graphics);
@@ -36,12 +37,22 @@ export default class PopupView extends cc.Component {
 
         this._titleLabel = this.addLabel(panel, 40, 0, 65);
         this._messageLabel = this.addLabel(panel, 28, 0, 10);
-        this.addRestartButton(panel);
+        this.addPrimaryButton(panel);
+        this.applyScreenSize();
     }
 
-    show(title: string, message: string): void {
-        if (this._titleLabel) { this._titleLabel.string = title; }
-        if (this._messageLabel) { this._messageLabel.string = message; }
+    show(config: PopupShowConfig): void {
+        this.applyScreenSize();
+        if (this._titleLabel) {
+            this._titleLabel.string = config.title;
+        }
+        if (this._messageLabel) {
+            this._messageLabel.string = config.message;
+        }
+        if (this._buttonLabel) {
+            this._buttonLabel.string = config.buttonText;
+        }
+        this._pendingEventName = config.eventName;
         this.node.active = true;
         this.node.opacity = 0;
         cc.tween(this.node).to(0.25, { opacity: 255 }).start();
@@ -49,6 +60,26 @@ export default class PopupView extends cc.Component {
 
     hide(): void {
         this.node.active = false;
+    }
+
+    private applyScreenSize(): void {
+        const visibleSize = cc.view.getVisibleSize();
+        this._width = visibleSize.width;
+        this._height = visibleSize.height;
+        this.node.setContentSize(this._width, this._height);
+        this.node.setPosition(0, 0);
+        if (!this._overlay) {
+            return;
+        }
+        this._overlay.setContentSize(this._width, this._height);
+        const graphics = this._overlay.getComponent(cc.Graphics);
+        if (!graphics) {
+            return;
+        }
+        graphics.clear();
+        graphics.fillColor = new cc.Color(0, 0, 0, 160);
+        graphics.rect(-this._width / 2, -this._height / 2, this._width, this._height);
+        graphics.fill();
     }
 
     private addLabel(parent: cc.Node, fontSize: number, x: number, y: number): cc.Label {
@@ -64,8 +95,8 @@ export default class PopupView extends cc.Component {
         return label;
     }
 
-    private addRestartButton(parent: cc.Node): void {
-        const btn = new cc.Node("RestartBtn");
+    private addPrimaryButton(parent: cc.Node): void {
+        const btn = new cc.Node("PrimaryBtn");
         btn.setContentSize(200, 50);
         btn.setPosition(0, -70);
         const bg = btn.addComponent(cc.Graphics);
@@ -81,9 +112,10 @@ export default class PopupView extends cc.Component {
         label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
         labelNode.color = cc.Color.WHITE;
         btn.addChild(labelNode);
+        this._buttonLabel = label;
 
         btn.on(cc.Node.EventType.TOUCH_END, () => {
-            EventBus.emit(GameEvents.RESTART_GAME);
+            EventBus.emit(this._pendingEventName);
         });
         parent.addChild(btn);
     }

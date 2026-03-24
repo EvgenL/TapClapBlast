@@ -5,33 +5,66 @@ import Grid from "../model/Grid";
 import EventBus from "../utils/EventBus";
 import GameEvents from "../utils/GameEvents";
 import TileAnimator from "./TileAnimator";
+import TileSpriteSet from "./TileSpriteSet";
 import { TileMove } from "../model/GravityProcessor";
 
-const { ccclass } = cc._decorator;
+const { ccclass, property } = cc._decorator;
 
 @ccclass
 export default class BoardView extends cc.Component {
-    private _tileViews: Map<number, TileView> = new Map();
-    private _colorSprites: cc.SpriteFrame[] = [];
-    private _superSprites: cc.SpriteFrame[] = [];
-    private _tileSize: number = GameConfig.TILE_SIZE;
-    private _rows: number = GameConfig.ROWS;
-    private _cols: number = GameConfig.COLS;
+    @property(cc.Node)
+    boardContainer: cc.Node = null;
 
-    init(colorSprites: cc.SpriteFrame[], superSprites: cc.SpriteFrame[]): void {
-        this._colorSprites = colorSprites;
-        this._superSprites = superSprites;
-        const bw = this._cols * this._tileSize;
-        const bh = this._rows * this._tileSize;
-        this.node.setContentSize(bw, bh);
-        this.node.on(cc.Node.EventType.TOUCH_END, this.onTouchEnd, this);
-        this.drawBackground(bw, bh);
+    private _tileViews: Map<number, TileView> = new Map();
+    private _sprites: TileSpriteSet = null;
+    private _tileSize: number = 0;
+    private _rows: number = GameConfig.BOARD_ROWS;
+    private _cols: number = GameConfig.BOARD_COLS;
+    private _boardWidth: number = 0;
+    private _boardHeight: number = 0;
+
+    init(sprites: TileSpriteSet): void {
+        this._sprites = sprites;
+        this.rebuildLayout();
+        this.getContainerNode().on(cc.Node.EventType.TOUCH_END, this.onTouchEnd, this);
     }
 
-    createBoard(grid: Grid): void {
+    onDestroy(): void {
+        this.getContainerNode().off(cc.Node.EventType.TOUCH_END, this.onTouchEnd, this);
+    }
+
+    createBoard(grid: Grid, animateFromTop: boolean = false, callback?: () => void): void {
         this.clearBoard();
-        for (const tile of grid.getAllTiles()) {
-            this.createTileNode(tile);
+        const tiles = grid.getAllTiles();
+        if (!animateFromTop) {
+            for (const tile of tiles) {
+                this.createTileNode(tile);
+            }
+            if (callback) {
+                callback();
+            }
+            return;
+        }
+        if (tiles.length === 0) {
+            if (callback) {
+                callback();
+            }
+            return;
+        }
+        let completed = 0;
+        const boardTopY = this._boardHeight / 2 + this._tileSize * 0.5;
+        for (const tile of tiles) {
+            const tileView = this.createTileNode(tile);
+            const target = this.gridToLocal(tile.row, tile.col);
+            const startY = boardTopY + (tile.row + 1) * this._tileSize;
+            tileView.node.setPosition(target.x, startY);
+            const distance = tile.row + 1;
+            TileAnimator.animateFall(tileView.node, target.x, target.y, distance, () => {
+                completed++;
+                if (completed >= tiles.length && callback) {
+                    callback();
+                }
+            });
         }
     }
 
@@ -39,7 +72,8 @@ export default class BoardView extends cc.Component {
         const node = new cc.Node(`Tile_${tile.id}`);
         const sprite = node.addComponent(cc.Sprite);
         sprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-        node.setContentSize(this._tileSize - 4, this._tileSize - 4);
+        const tileInset = Math.min(4, this._tileSize * 0.08);
+        node.setContentSize(this._tileSize - tileInset, this._tileSize - tileInset);
 
         const tileView = node.addComponent(TileView);
         const spriteFrame = this.getSpriteFrame(tile);
@@ -47,7 +81,7 @@ export default class BoardView extends cc.Component {
 
         const pos = this.gridToLocal(tile.row, tile.col);
         node.setPosition(pos);
-        this.node.addChild(node);
+        this.getContainerNode().addChild(node);
         this._tileViews.set(tile.id, tileView);
         return tileView;
     }
@@ -169,26 +203,46 @@ export default class BoardView extends cc.Component {
     }
 
     gridToLocal(row: number, col: number): cc.Vec2 {
-        const x = (col - this._cols / 2 + 0.5) * this._tileSize;
-        const y = (this._rows / 2 - 0.5 - row) * this._tileSize;
+        const x = -this._boardWidth / 2 + (col + 0.5) * this._tileSize;
+        const y = this._boardHeight / 2 - (row + 0.5) * this._tileSize;
         return cc.v2(x, y);
     }
 
     private getSpriteFrame(tile: Tile): cc.SpriteFrame {
-        if (tile.isSuperTile) {
-            return this._superSprites[tile.superType - 1] || null;
-        }
-        return this._colorSprites[tile.color] || null;
+        return this._sprites.getSpriteFrame(tile);
     }
 
     private onTouchEnd(event: cc.Event.EventTouch): void {
         const touchPos = event.getLocation();
-        const nodePos = this.node.convertToNodeSpaceAR(touchPos);
-        const col = Math.floor((nodePos.x + this.node.width / 2) / this._tileSize);
-        const row = Math.floor((this.node.height / 2 - nodePos.y) / this._tileSize);
+        const nodePos = this.getContainerNode().convertToNodeSpaceAR(touchPos);
+        if (
+            nodePos.x < -this._boardWidth / 2 ||
+            nodePos.x >= this._boardWidth / 2 ||
+            nodePos.y > this._boardHeight / 2 ||
+            nodePos.y <= -this._boardHeight / 2
+        ) {
+            return;
+        }
+        const col = Math.floor((nodePos.x + this._boardWidth / 2) / this._tileSize);
+        const row = Math.floor((this._boardHeight / 2 - nodePos.y) / this._tileSize);
         if (row >= 0 && row < this._rows && col >= 0 && col < this._cols) {
             EventBus.emit(GameEvents.TILE_CLICK, row, col);
         }
+    }
+
+    private rebuildLayout(): void {
+        this._rows = GameConfig.BOARD_ROWS;
+        this._cols = GameConfig.BOARD_COLS;
+        const container = this.getContainerNode();
+        const containerWidth = container.width;
+        const containerHeight = container.height;
+        this._tileSize = Math.min(containerWidth / this._cols, containerHeight / this._rows);
+        this._boardWidth = this._cols * this._tileSize;
+        this._boardHeight = this._rows * this._tileSize;
+    }
+
+    private getContainerNode(): cc.Node {
+        return this.boardContainer ? this.boardContainer : this.node;
     }
 
     private clearBoard(): void {
@@ -199,17 +253,4 @@ export default class BoardView extends cc.Component {
         this._tileViews.clear();
     }
 
-    private drawBackground(bw: number, bh: number): void {
-        const bg = new cc.Node("BoardBg");
-        const g = bg.addComponent(cc.Graphics);
-        g.fillColor = new cc.Color(20, 20, 45, 220);
-        g.roundRect(-bw / 2 - 6, -bh / 2 - 6, bw + 12, bh + 12, 10);
-        g.fill();
-        g.strokeColor = new cc.Color(80, 80, 130);
-        g.lineWidth = 2;
-        g.roundRect(-bw / 2 - 6, -bh / 2 - 6, bw + 12, bh + 12, 10);
-        g.stroke();
-        this.node.addChild(bg);
-        bg.setSiblingIndex(0);
-    }
 }

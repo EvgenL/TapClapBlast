@@ -1,11 +1,11 @@
 import Grid from "../model/Grid";
 import Tile from "../model/Tile";
-import { TileColor, SuperTileType } from "../model/TileType";
 import MatchFinder from "../model/MatchFinder";
-import GravityProcessor from "../model/GravityProcessor";
-import ScoreCalculator from "../model/ScoreCalculator";
 import ShuffleProcessor from "../model/ShuffleProcessor";
-import SuperTileProcessor from "../model/SuperTileProcessor";
+import BombBoardEffect from "../model/boosters/BombBoardEffect";
+import ChainDestructionService from "../model/boosters/ChainDestructionService";
+import SuperTileEffectRegistry from "../model/boosters/SuperTileEffectRegistry";
+import LevelConfigService from "../model/LevelConfigService";
 import GameConfig from "../config/GameConfig";
 import EventBus from "../utils/EventBus";
 import GameEvents from "../utils/GameEvents";
@@ -13,38 +13,75 @@ import BoardView from "../view/BoardView";
 import HudView from "../view/HudView";
 import BoosterPanelView from "../view/BoosterPanelView";
 import PopupView from "../view/PopupView";
-import UIBuilder from "../view/UIBuilder";
-import InputController, { InputMode } from "./InputController";
+import TileSpriteSet from "../view/TileSpriteSet";
+import BoosterBarPresenter from "./BoosterBarPresenter";
+import GameMatchContext from "./GameMatchContext";
+import GameMatchHandler from "./GameMatchHandler";
+import SeededRandom from "../utils/SeededRandom";
 
 const { ccclass, property } = cc._decorator;
 
 @ccclass
 export default class GameController extends cc.Component {
-    @property([cc.SpriteFrame])
-    colorSprites: cc.SpriteFrame[] = [];
+    @property(BoardView)
+    boardView: BoardView = null;
+    @property(HudView)
+    hudView: HudView = null;
+    @property(BoosterPanelView)
+    boosterPanelView: BoosterPanelView = null;
 
-    @property([cc.SpriteFrame])
-    superSprites: cc.SpriteFrame[] = [];
+    @property(cc.SpriteFrame)
+    blueSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    greenSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    purpleSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    redSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    yellowSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    rocketHSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    rocketVSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    bombSprite: cc.SpriteFrame = null;
+    @property(cc.SpriteFrame)
+    megaBombSprite: cc.SpriteFrame = null;
 
-    private _grid: Grid = null;
-    private _boardView: BoardView = null;
-    private _hudView: HudView = null;
-    private _boosterPanel: BoosterPanelView = null;
-    private _popupView: PopupView = null;
-    private _inputCtrl: InputController = null;
-    private _score: number = 0;
-    private _movesLeft: number = 0;
-    private _shufflesLeft: number = 0;
-    private _isProcessing: boolean = false;
+    private readonly _ctx = new GameMatchContext();
+    private _match: GameMatchHandler = null;
 
     start(): void {
-        const views = UIBuilder.build(this.node, this.colorSprites, this.superSprites);
-        this._boardView = views.boardView;
-        this._hudView = views.hudView;
-        this._boosterPanel = views.boosterPanel;
-        this._popupView = views.popupView;
-        this.initGame();
-        this.registerEvents();
+        const sprites = new TileSpriteSet(
+            this.blueSprite, this.greenSprite, this.purpleSprite,
+            this.redSprite, this.yellowSprite,
+            this.rocketHSprite, this.rocketVSprite,
+            this.bombSprite, this.megaBombSprite
+        );
+        LevelConfigService.loadFromResources("config/levels", (service) => {
+            if (!cc.isValid(this)) {
+                return;
+            }
+            this._ctx.levelService = service;
+            this._ctx.boardView = this.boardView;
+            this._ctx.hudView = this.hudView;
+            this._ctx.boardView.init(sprites);
+            this._ctx.hudView.init();
+            const chainDestruction = new ChainDestructionService(SuperTileEffectRegistry.createDefault());
+            this._ctx.chainDestruction = chainDestruction;
+            this._ctx.boosterBar = new BoosterBarPresenter(
+                this.boosterPanelView,
+                this.boardView,
+                chainDestruction,
+                new BombBoardEffect(GameConfig.BOMB_RADIUS)
+            );
+            this._ctx.popupView = this.createRuntimePopup();
+            this._ctx.boosterBar.setCanUseBoosters(() => !this._ctx.isProcessing);
+            this._match = new GameMatchHandler(this._ctx);
+            this.initGame();
+            this.registerEvents();
+        });
     }
 
     onDestroy(): void {
@@ -52,190 +89,62 @@ export default class GameController extends cc.Component {
     }
 
     private initGame(): void {
-        this._score = 0;
-        this._movesLeft = GameConfig.MAX_MOVES;
-        this._shufflesLeft = GameConfig.MAX_SHUFFLES;
-        this._isProcessing = false;
+        const level = this._ctx.levelService.getCurrentLevel();
+        const seededRandom = new SeededRandom(level.id);
+        this._ctx.score = 0;
+        this._ctx.movesLeft = level.maxMoves;
+        this._ctx.shufflesLeft = GameConfig.MAX_SHUFFLES;
+        this._ctx.isProcessing = true;
 
         Tile.resetIdCounter();
-        this._grid = new Grid();
-        this._grid.fill();
+        this._ctx.grid = new Grid();
+        this._ctx.grid.fill(() => seededRandom.next());
 
-        while (!MatchFinder.hasAnyGroup(this._grid, GameConfig.MIN_GROUP_SIZE)) {
-            ShuffleProcessor.shuffle(this._grid);
+        while (!MatchFinder.hasAnyGroup(this._ctx.grid, GameConfig.MIN_GROUP_SIZE)) {
+            ShuffleProcessor.shuffle(this._ctx.grid, () => seededRandom.next());
         }
 
-        this._inputCtrl = new InputController(
-            this._boardView, this._boosterPanel,
-            GameConfig.BOMB_USES, GameConfig.TELEPORT_USES
-        );
+        this._ctx.boosterBar.reset(GameConfig.BOMB_USES, GameConfig.TELEPORT_USES);
 
-        this._boardView.createBoard(this._grid);
-        this.updateHud();
+        this._ctx.boardView.createBoard(this._ctx.grid, true, () => {
+            this._ctx.isProcessing = false;
+        });
+        this._match.updateHud();
     }
 
     private registerEvents(): void {
         EventBus.on(GameEvents.TILE_CLICK, this.onTileClick.bind(this));
-        EventBus.on(GameEvents.BOOSTER_BOMB_ACTIVATE, () => {
-            if (!this._isProcessing) { this._inputCtrl.toggleBomb(); }
-        });
-        EventBus.on(GameEvents.BOOSTER_TELEPORT_ACTIVATE, () => {
-            if (!this._isProcessing) { this._inputCtrl.toggleTeleport(); }
-        });
         EventBus.on(GameEvents.RESTART_GAME, this.onRestart.bind(this));
+        EventBus.on(GameEvents.NEXT_LEVEL, this.onNextLevel.bind(this));
+        EventBus.on(GameEvents.RESTART_CAMPAIGN, this.onRestartCampaign.bind(this));
     }
 
     private onTileClick(row: number, col: number): void {
-        if (this._isProcessing) {
-            return;
-        }
-        switch (this._inputCtrl.inputMode) {
-            case InputMode.Normal:
-                this.handleNormalClick(row, col);
-                break;
-            case InputMode.Bomb:
-                this.handleBombClick(row, col);
-                break;
-            case InputMode.TeleportFirst:
-                this.handleTeleportFirst(row, col);
-                break;
-            case InputMode.TeleportSecond:
-                this.handleTeleportSecond(row, col);
-                break;
-        }
-    }
-
-    private handleNormalClick(row: number, col: number): void {
-        const tile = this._grid.getTile(row, col);
-        if (!tile) {
-            return;
-        }
-        if (tile.isSuperTile) {
-            this.activateSuperTile(tile);
-            return;
-        }
-        const group = MatchFinder.findGroup(this._grid, row, col);
-        if (group.length < GameConfig.MIN_GROUP_SIZE) {
-            return;
-        }
-
-        this._isProcessing = true;
-        this._movesLeft--;
-
-        const superType = SuperTileProcessor.getSuperType(group.length);
-        for (const t of group) {
-            this._grid.removeTile(t.row, t.col);
-        }
-        this._score += ScoreCalculator.calculate(group.length);
-
-        let newSuper: Tile | null = null;
-        if (superType !== SuperTileType.None) {
-            newSuper = new Tile(TileColor.Blue, row, col, superType);
-            this._grid.setTile(row, col, newSuper);
-        }
-
-        this._boardView.destroyTiles(group, () => {
-            if (newSuper) {
-                this._boardView.createTileNode(newSuper);
-            }
-            this.processGravityAndFill();
-        });
-    }
-
-    private activateSuperTile(tile: Tile): void {
-        this._isProcessing = true;
-        this._movesLeft--;
-
-        const allDestroyed = SuperTileProcessor.collectChainDestructions(this._grid, [tile]);
-        for (const t of allDestroyed) {
-            this._grid.removeTile(t.row, t.col);
-        }
-        this._score += ScoreCalculator.calculate(allDestroyed.length);
-
-        this._boardView.destroyTiles(allDestroyed, () => {
-            this.processGravityAndFill();
-        });
-    }
-
-    private handleBombClick(row: number, col: number): void {
-        const result = this._inputCtrl.handleBombClick(this._grid, row, col);
-        if (!result) {
-            return;
-        }
-        this._isProcessing = true;
-        this._score += result.score;
-        this._boardView.destroyTiles(result.destroyed, () => {
-            this.processGravityAndFill();
-        });
-    }
-
-    private handleTeleportFirst(row: number, col: number): void {
-        this._inputCtrl.handleTeleportFirstClick(this._grid, row, col);
-    }
-
-    private handleTeleportSecond(row: number, col: number): void {
-        const result = this._inputCtrl.handleTeleportSecondClick(this._grid, row, col);
-        if (!result) {
-            return;
-        }
-        this._isProcessing = true;
-        this._boardView.animateSwap(result.tile1, result.tile2, () => {
-            this._isProcessing = false;
-        });
-    }
-
-    private processGravityAndFill(): void {
-        const moves = GravityProcessor.applyGravity(this._grid);
-        this._boardView.animateFalls(moves, () => {
-            const newTiles = this._grid.fill();
-            this._boardView.spawnTiles(newTiles, () => {
-                this.checkGameState();
-            });
-        });
-    }
-
-    private checkGameState(): void {
-        this.updateHud();
-
-        if (this._score >= GameConfig.TARGET_SCORE) {
-            this._popupView.show("Victory!", `Score: ${this._score}`);
-            return;
-        }
-        if (this._movesLeft <= 0) {
-            this._popupView.show("Game Over", `Score: ${this._score}/${GameConfig.TARGET_SCORE}`);
-            return;
-        }
-        if (!MatchFinder.hasAnyGroup(this._grid, GameConfig.MIN_GROUP_SIZE)) {
-            this.handleNoMoves();
-            return;
-        }
-        this._isProcessing = false;
-    }
-
-    private handleNoMoves(): void {
-        if (this._shufflesLeft <= 0) {
-            this._popupView.show("Game Over", "No moves available");
-            return;
-        }
-        this._shufflesLeft--;
-        if (!ShuffleProcessor.shuffle(this._grid)) {
-            this._popupView.show("Game Over", "No moves available");
-            return;
-        }
-        this.updateHud();
-        this._boardView.animateShuffle(this._grid, () => {
-            this._isProcessing = false;
-        });
-    }
-
-    private updateHud(): void {
-        this._hudView.updateScore(this._score, GameConfig.TARGET_SCORE);
-        this._hudView.updateMoves(this._movesLeft);
-        this._hudView.updateShuffles(this._shufflesLeft);
+        this._match.onTileClick(row, col);
     }
 
     private onRestart(): void {
-        this._popupView.hide();
+        this._ctx.popupView.hide();
         this.initGame();
+    }
+
+    private onNextLevel(): void {
+        this._ctx.popupView.hide();
+        this._ctx.levelService.advanceLevel();
+        this.initGame();
+    }
+
+    private onRestartCampaign(): void {
+        this._ctx.popupView.hide();
+        this._ctx.levelService.resetProgress();
+        this.initGame();
+    }
+
+    private createRuntimePopup(): PopupView {
+        const popupNode = new cc.Node("Popup");
+        this.node.addChild(popupNode);
+        const popupView = popupNode.addComponent(PopupView);
+        popupView.init();
+        return popupView;
     }
 }

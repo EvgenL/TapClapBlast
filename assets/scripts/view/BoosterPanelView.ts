@@ -1,77 +1,63 @@
-import EventBus from "../utils/EventBus";
-import GameEvents from "../utils/GameEvents";
+export interface BoosterPanelCallbacks {
+    onBombClick: () => void;
+    onTeleportClick: () => void;
+}
 
-const { ccclass } = cc._decorator;
+const { ccclass, property } = cc._decorator;
 
 @ccclass
 export default class BoosterPanelView extends cc.Component {
-    private _bombLabel: cc.Label = null;
-    private _teleportLabel: cc.Label = null;
-    private _bombNode: cc.Node = null;
-    private _teleportNode: cc.Node = null;
+    @property(cc.Button)
+    bombButton: cc.Button = null;
 
-    init(): void {
-        this.node.setContentSize(700, 80);
-        this.node.setPosition(0, -560);
+    @property(cc.Button)
+    teleportButton: cc.Button = null;
 
-        this._bombNode = this.createButton("Bomb", -130, 0, new cc.Color(160, 50, 50));
-        this._bombLabel = this._bombNode.getComponentInChildren(cc.Label);
-        this._bombNode.on(cc.Node.EventType.TOUCH_END, () => {
-            EventBus.emit(GameEvents.BOOSTER_BOMB_ACTIVATE);
-        });
+    @property(cc.Label)
+    bombCountLabel: cc.Label = null;
 
-        this._teleportNode = this.createButton("Teleport", 130, 0, new cc.Color(50, 50, 160));
-        this._teleportLabel = this._teleportNode.getComponentInChildren(cc.Label);
-        this._teleportNode.on(cc.Node.EventType.TOUCH_END, () => {
-            EventBus.emit(GameEvents.BOOSTER_TELEPORT_ACTIVATE);
-        });
-    }
+    @property(cc.Label)
+    teleportCountLabel: cc.Label = null;
 
-    updateBombCount(count: number): void {
-        if (this._bombLabel) {
-            this._bombLabel.string = `Bomb (${count})`;
+    @property(cc.Node)
+    bombHighlightNode: cc.Node = null;
+
+    @property(cc.Node)
+    teleportHighlightNode: cc.Node = null;
+
+    init(callbacks: BoosterPanelCallbacks): void {
+        if (this.bombButton) {
+            this.bombButton.node.off(cc.Node.EventType.TOUCH_END);
+            this.bombButton.node.on(cc.Node.EventType.TOUCH_END, callbacks.onBombClick);
+        }
+        if (this.teleportButton) {
+            this.teleportButton.node.off(cc.Node.EventType.TOUCH_END);
+            this.teleportButton.node.on(cc.Node.EventType.TOUCH_END, callbacks.onTeleportClick);
         }
     }
 
-    updateTeleportCount(count: number): void {
-        if (this._teleportLabel) {
-            this._teleportLabel.string = `Teleport (${count})`;
+    updateCount(slotId: string, count: number): void {
+        if (slotId === "bomb" && this.bombCountLabel) {
+            this.bombCountLabel.string = `${count}`;
+            return;
+        }
+        if (slotId === "teleport" && this.teleportCountLabel) {
+            this.teleportCountLabel.string = `${count}`;
         }
     }
 
-    highlightBomb(active: boolean): void {
-        if (this._bombNode) {
-            this._bombNode.opacity = active ? 255 : 180;
+    setHighlight(slotId: string, active: boolean): void {
+        if (slotId === "bomb" && this.bombHighlightNode) {
+            this.bombHighlightNode.active = active;
+            return;
+        }
+        if (slotId === "teleport" && this.teleportHighlightNode) {
+            this.teleportHighlightNode.active = active;
         }
     }
 
-    highlightTeleport(active: boolean): void {
-        if (this._teleportNode) {
-            this._teleportNode.opacity = active ? 255 : 180;
-        }
-    }
-
-    private createButton(text: string, x: number, y: number, color: cc.Color): cc.Node {
-        const node = new cc.Node(text);
-        node.setContentSize(220, 56);
-        node.setPosition(x, y);
-        node.opacity = 180;
-
-        const bg = node.addComponent(cc.Graphics);
-        bg.fillColor = color;
-        bg.roundRect(-110, -28, 220, 56, 12);
-        bg.fill();
-
-        const labelNode = new cc.Node("Label");
-        const label = labelNode.addComponent(cc.Label);
-        label.string = `${text} (0)`;
-        label.fontSize = 22;
-        label.lineHeight = 28;
-        label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-        labelNode.color = cc.Color.WHITE;
-        node.addChild(labelNode);
-
-        this.node.addChild(node);
-        return node;
+    clearHighlights(): void {
+        this.setHighlight("bomb", false);
+        this.setHighlight("teleport", false);
     }
 }
